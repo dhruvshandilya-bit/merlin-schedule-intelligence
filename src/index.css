@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  color: #171717;
+  background: #f7f7f7;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11', 'ss01';
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* thin scrollbars */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d8d8d8;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #bcbcbc;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(110, 55, 133, 0.35); }
+  70% { box-shadow: 0 0 0 8px rgba(110, 55, 133, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(110, 55, 133, 0); }
+}
+.pulse-ring { animation: pulse-ring 2s infinite; }
+
+.tnum { font-variant-numeric: tabular-nums; }
+
+.input {
+  width: 100%;
+  border: 1px solid #ebebeb;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  background: #fff;
+  color: #171717;
+}
+.input:focus {
+  outline: none;
+  border-color: #c9a8d9;
+  box-shadow: 0 0 0 3px rgba(110, 55, 133, 0.1);
+}
+select.input { cursor: pointer; }
