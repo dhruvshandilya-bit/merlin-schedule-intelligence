@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
-  Search, Plus, ChevronDown, ChevronRight, X, Camera, AlertTriangle, CloudLightning, Flag, Clock, Ban, Diamond, Calendar, CalendarCheck, Timer, Link2, MessageSquare, Paperclip, Route, GitBranch, Filter, CheckCircle2, ArrowRightLeft,
+  Search, Plus, ChevronDown, ChevronRight, X, Camera, AlertTriangle, CloudLightning, Flag, Clock, Ban, Diamond, Calendar, CalendarCheck, Timer, Link2, MessageSquare, Paperclip, Route, GitBranch, Filter, CheckCircle2, ArrowRightLeft, Trash2, ImagePlus, FilePlus, ZoomIn, History,
 } from 'lucide-react'
 import { useProject } from '../state/store'
 import { PHASES, TEAM, memberColor, assigneesOf, DELAY_REASONS } from '../data/project'
@@ -9,13 +9,45 @@ import { Avatar, AvatarStack, Badge, HEALTH_META, STATUS_META, PRIORITY_META, cn
 const DEP_LABEL: Record<string, string> = { FS: 'after it finishes', SS: 'when it starts', FF: 'to finish with it', SF: 'to start when it finishes' }
 import Comments from './Comments'
 import { taskHealth, isOverdue, isDelayed, fmtDate, diffDays, workingDaysInclusive, scheduleMetrics, rollupProgress, rollupHealth, workingDaysBetween } from '../lib/scheduling'
-import type { Task, TaskStatus } from '../lib/types'
+import type { Task, TaskStatus, Priority } from '../lib/types'
 
 const ME = 'M. Reyes'
 const STATUS_QUICK: TaskStatus[] = ['not-started', 'in-progress', 'blocked', 'on-hold', 'done', 'cancelled']
+const PRIORITY_QUICK: Priority[] = ['low', 'medium', 'high', 'critical']
 
 function fmtDT(date: string, time?: string) {
   return time ? `${fmtDate(date)} · ${time}` : fmtDate(date)
+}
+
+// A task is "not done on time" when it slipped past its planned (baseline) dates,
+// or it is past due and still open. Only then do we surface the actual/forecast dates.
+function notOnTime(t: Task, today: string): boolean {
+  if (t.status === 'cancelled') return false
+  return isOverdue(t, today) || diffDays(t.baselineStart, t.start) > 0 || diffDays(t.baselineEnd, t.end) > 0
+}
+
+// Actual (or, if still open, forecast) start/end — shown only when a task ran late.
+function LateDates({ t }: { t: Task }) {
+  const done = t.status === 'done'
+  const lbl = done ? 'Actual' : 'Forecast'
+  const slip = diffDays(t.baselineEnd, t.end)
+  return (
+    <div className="mt-2 rounded-lg border border-warn/40 bg-warn/5 px-2 py-1.5">
+      <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[#b45309]">
+        <History className="h-3 w-3" /> {lbl} dates{slip > 0 ? ` · ${slip}d late` : ''}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <div className="text-[9px] font-semibold uppercase tracking-wide text-ink-400">{lbl} start</div>
+          <div className="text-[12px] font-bold tabular-nums text-ink-900">{fmtDT(t.start, t.startTime)}</div>
+        </div>
+        <div>
+          <div className="text-[9px] font-semibold uppercase tracking-wide text-ink-400">{lbl} {done ? 'end' : 'end (est.)'}</div>
+          <div className="text-[12px] font-bold tabular-nums text-ink-900">{fmtDT(t.end, t.endTime)}</div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 interface Banner { tone: 'danger' | 'warn' | 'neutral' | 'brand'; icon: any; text: string }
@@ -164,7 +196,7 @@ function leafDescendants(tasks: Task[], id: string): Task[] {
   return kids.flatMap((k) => leafDescendants(tasks, k.id))
 }
 
-// ── Milestone hero tile (its own rolled-up readiness metric) ─
+// ── Milestone hero tile (its own rolled-up completion metric) ─
 function MilestoneTile({ ms, feeders, onOpen }: { ms: Task; feeders: Task[]; onOpen?: () => void }) {
   const { tasks, today } = useProject()
   const leaves = feeders.flatMap((f) => leafDescendants(tasks, f.id))
@@ -178,8 +210,10 @@ function MilestoneTile({ ms, feeders, onOpen }: { ms: Task; feeders: Task[]; onO
   const slip = diffDays(ms.baselineEnd, ms.end)
   const isDone = ms.status === 'done' || ms.progress >= 100
   const color = isDone ? '#22c55e' : overdue > 0 ? '#fb3748' : slip > 0 ? '#fa7319' : '#1fc16b'
-  const label = isDone ? 'Reached' : overdue > 0 ? 'At risk' : slip > 0 ? `Slipping +${slip}d` : 'On track'
+  const label = isDone ? 'Completed' : overdue > 0 ? 'At risk' : slip > 0 ? `Slipping +${slip}d` : 'On track'
   const phase = PHASES.find((x) => x.id === ms.phaseId)?.name
+  // window start = earliest feeder start leading up to this milestone
+  const winStart = leaves.length ? leaves.reduce((m, t) => (diffDays(t.start, m) > 0 ? m : t.start), leaves[0].start) : ms.start
   const Wrap: any = onOpen ? 'button' : 'div'
   return (
     <Wrap onClick={onOpen} className={cn('block w-full rounded-2xl border border-line bg-white p-3.5 text-left shadow-card', onOpen && 'transition-shadow active:scale-[0.99] active:shadow-none')}>
@@ -195,9 +229,19 @@ function MilestoneTile({ ms, feeders, onOpen }: { ms: Task; feeders: Task[]; onO
         </div>
         <div className="shrink-0 text-right">
           <div className="text-[9px] uppercase tracking-wide text-ink-400">Target</div>
-          <div className="text-[13px] font-bold tabular-nums text-ink-950">{fmtDate(ms.end)}</div>
+          <div className="text-[13px] font-bold tabular-nums text-ink-950">{fmtDT(ms.end, ms.endTime)}</div>
           <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-ink-500"><span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />{label}</span>
         </div>
+      </div>
+
+      {/* start → target window */}
+      <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-line bg-surface/60 px-2.5 py-1.5 text-[11px]">
+        <Calendar className="h-3.5 w-3.5 shrink-0 text-ink-400" />
+        <span className="font-semibold uppercase tracking-wide text-ink-400">Start</span>
+        <span className="font-bold tabular-nums text-ink-800">{fmtDate(winStart)}</span>
+        <ChevronRight className="h-3 w-3 text-ink-300" />
+        <span className="font-semibold uppercase tracking-wide text-ink-400">Target</span>
+        <span className="font-bold tabular-nums text-ink-800">{fmtDT(ms.end, ms.endTime)}</span>
       </div>
 
       {!isDone && (overdue > 0 || slip > 0) && (
@@ -211,7 +255,7 @@ function MilestoneTile({ ms, feeders, onOpen }: { ms: Task; feeders: Task[]; onO
 
       <div className="mt-3 flex gap-2">
         <MStat label="Tasks done" value={`${done}/${total}`} />
-        <MStat label="Readiness" value={`${pct}%`} color={color} />
+        <MStat label="Completion" value={`${pct}%`} color={color} />
         <MStat label={overdue ? 'Overdue' : blocked ? 'Blocked' : 'Remaining'} value={overdue ? `${overdue}` : blocked ? `${blocked}` : `${total - done}`} color={overdue || blocked ? color : undefined} />
       </div>
       <div className="mt-2.5 flex h-2 w-full overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} /></div>
@@ -221,7 +265,7 @@ function MilestoneTile({ ms, feeders, onOpen }: { ms: Task; feeders: Task[]; onO
           <ChevronRight className="h-4 w-4" />
         </div>
       ) : (
-        <div className="mt-1.5 text-[10px] text-ink-500">Readiness = how much of the work leading to this milestone is complete</div>
+        <div className="mt-1.5 text-[10px] text-ink-500">Completion = how much of the work leading to this milestone is complete</div>
       )}
     </Wrap>
   )
@@ -251,6 +295,14 @@ function MetricsBand() {
   const dist: Record<string, number> = {}
   leaves.forEach((t) => { const h = taskHealth(t, today); dist[h] = (dist[h] ?? 0) + 1 })
   const total = leaves.length || 1
+
+  // ── Project-level actual / approximate dates ──
+  const baseStart = leaves.reduce((m, t) => (diffDays(t.baselineStart, m) > 0 ? t.baselineStart : m), leaves[0].baselineStart)
+  const actualStart = leaves.reduce((m, t) => (diffDays(t.start, m) > 0 ? t.start : m), leaves[0].start)
+  const started = leaves.some((t) => t.progress > 0 || t.status === 'done' || diffDays(t.start, today) >= 0)
+  const startedLate = started && diffDays(baseStart, actualStart) > 0
+  const allDone = leaves.every((t) => t.status === 'done' || t.status === 'cancelled')
+
   return (
     <div className="shrink-0 bg-white px-4 pb-3">
       <div className="flex items-end justify-between">
@@ -267,6 +319,25 @@ function MetricsBand() {
       <div className="mt-2 flex h-2 w-full overflow-hidden rounded-full bg-surface">
         {order.filter((k) => dist[k]).map((k) => <div key={k} style={{ width: `${(dist[k] / total) * 100}%`, background: HEALTH_META[k]?.color }} />)}
       </div>
+      {/* project actual-start (only if late) / actual-finish (if done) / approximate finish (in progress) */}
+      <div className="mt-2.5 flex flex-wrap gap-2">
+        {startedLate && <ProjDate label="Actual start" value={fmtDate(actualStart)} sub={`planned ${fmtDate(baseStart)}`} tone="warn" />}
+        {allDone
+          ? <ProjDate label="Actual finish" value={fmtDate(finish)} sub={delta > 0 ? `${delta}d late` : 'on time'} tone={delta > 0 ? 'warn' : 'ok'} />
+          : <ProjDate label="Approx. finish" value={fmtDate(finish)} sub={delta > 0 ? `+${delta}d vs plan` : 'on plan'} tone={delta > 0 ? 'warn' : 'ok'} />}
+      </div>
+    </div>
+  )
+}
+function ProjDate({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone: 'ok' | 'warn' }) {
+  const c = tone === 'warn' ? '#b45309' : '#14804a'
+  const bg = tone === 'warn' ? 'rgba(250,115,25,0.10)' : 'rgba(31,193,107,0.10)'
+  return (
+    <div className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5" style={{ background: bg }}>
+      <Calendar className="h-3.5 w-3.5 shrink-0" style={{ color: c }} />
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-500">{label}</span>
+      <span className="text-[12px] font-bold tabular-nums" style={{ color: c }}>{value}</span>
+      {sub && <span className="text-[10px] font-medium text-ink-400">· {sub}</span>}
     </div>
   )
 }
@@ -322,19 +393,22 @@ function TaskTile({ t, assigneeFilter }: { t: Task; assigneeFilter: string | nul
             </div>
           ))}
 
-          {/* dates */}
+          {/* dates — planned; actual/forecast shown below only when late */}
           {!t.milestone ? (
-            <div className="mt-2.5 grid grid-cols-3 gap-2">
-              <DateCell icon={Calendar} label="Start" value={fmtDT(t.start, t.startTime)} />
-              <DateCell icon={CalendarCheck} label="End" value={fmtDT(t.end, t.endTime)} />
-              <DateCell icon={Timer} label="Duration" value={`${Math.max(1, workingDaysInclusive(t.start, t.end))}d`} />
-            </div>
+            <>
+              <div className="mt-2.5 grid grid-cols-3 gap-2">
+                <DateCell icon={Calendar} label="Start" value={fmtDT(t.baselineStart, t.startTime)} />
+                <DateCell icon={CalendarCheck} label="End" value={fmtDT(t.baselineEnd, t.endTime)} />
+                <DateCell icon={Timer} label="Duration" value={`${Math.max(1, workingDaysInclusive(t.start, t.end))}d`} />
+              </div>
+              {notOnTime(t, today) && <LateDates t={t} />}
+            </>
           ) : (
-            <div className="mt-2.5"><DateCell icon={Diamond} label="Milestone date" value={fmtDT(t.start, t.startTime)} /></div>
+            <div className="mt-2.5"><DateCell icon={Diamond} label="Milestone date" value={fmtDT(t.end, t.endTime)} /></div>
           )}
 
-          {/* description */}
-          {(t.description || t.note) && <p className="mt-2 line-clamp-2 text-[12px] leading-relaxed text-ink-600">{t.description || t.note}</p>}
+          {/* description — full, wrapped */}
+          {(t.description || t.note) && <p className="mt-2 whitespace-pre-line text-[12px] leading-relaxed text-ink-600">{t.description || t.note}</p>}
 
 
         </div>
@@ -352,35 +426,28 @@ function DateCell({ icon: Icon, label, value }: { icon: any; label: string; valu
   )
 }
 
-// ── Subtask row (expands to end-to-end details) ────────
+// ── Subtask row (tap to open the full editable sheet) ──
 function SubtaskRow({ t }: { t: Task }) {
   const { today, openDrawer } = useProject()
-  const [open, setOpen] = useState(false)
   const h = taskHealth(t, today)
   const overdue = isOverdue(t, today)
+  const hiPri = t.priority === 'high' || t.priority === 'critical'
   return (
-    <div className="overflow-hidden rounded-xl border border-line bg-white">
-      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2.5 p-2.5 text-left">
+    <button onClick={() => openDrawer(t.id)} className="w-full overflow-hidden rounded-xl border border-line bg-white text-left active:bg-surface">
+      <div className="flex items-center gap-2.5 p-2.5">
         <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: HEALTH_META[h]?.color }} />
         <div className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-semibold text-ink-900">{t.name}</span>
-          <span className="text-[12px] text-ink-500">{STATUS_META[t.status]?.label} · {fmtDate(t.start)}–{fmtDate(t.end)}{overdue ? ' · overdue' : ''}</span>
+          <span className="flex items-center gap-1.5">
+            {hiPri && <Flag className="h-3 w-3 shrink-0" style={{ color: PRIORITY_META[t.priority!].color }} />}
+            <span className="truncate text-[14px] font-semibold text-ink-900">{t.name}</span>
+          </span>
+          <span className="text-[12px] text-ink-500">{STATUS_META[t.status]?.label} · {fmtDT(t.baselineStart, t.startTime)}–{fmtDT(t.baselineEnd, t.endTime)}{overdue ? ' · overdue' : ''}</span>
         </div>
         <AvatarStack names={assigneesOf(t)} colorFn={memberColor} />
-        {open ? <ChevronDown className="h-4 w-4 shrink-0 text-ink-300" /> : <ChevronRight className="h-4 w-4 shrink-0 text-ink-300" />}
-      </button>
-      {open && (
-        <div className="border-t border-line px-2.5 pb-2.5 pt-2">
-          <div className="grid grid-cols-3 gap-2">
-            <DateCell icon={Calendar} label="Start" value={fmtDT(t.start, t.startTime)} />
-            <DateCell icon={CalendarCheck} label="End" value={fmtDT(t.end, t.endTime)} />
-            <DateCell icon={Timer} label="Duration" value={`${Math.max(1, workingDaysInclusive(t.start, t.end))} work-days`} />
-          </div>
-          {t.description && <p className="mt-2 text-[12px] leading-relaxed text-ink-600">{t.description}</p>}
-          <button onClick={() => openDrawer(t.id)} className="mt-2 text-[12px] font-semibold text-brand-700">Open &amp; edit →</button>
-        </div>
-      )}
-    </div>
+        <ChevronRight className="h-4 w-4 shrink-0 text-ink-300" />
+      </div>
+      {notOnTime(t, today) && <div className="px-2.5 pb-2.5"><LateDates t={t} /></div>}
+    </button>
   )
 }
 
@@ -391,7 +458,12 @@ function MobileTaskSheet() {
   const [newName, setNewName] = useState('')
   const [newAssignees, setNewAssignees] = useState<string[]>([])
   const [newParent, setNewParent] = useState('c0')
-  useEffect(() => { if (creating) { setNewName(''); setNewAssignees([]); setNewParent('c0') } }, [creating])
+  const [newPriority, setNewPriority] = useState<Priority>('medium')
+  const [lightbox, setLightbox] = useState<string | null>(null)
+  const [confirmDel, setConfirmDel] = useState(false)
+  const commentsRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (creating) { setNewName(''); setNewAssignees([]); setNewParent('c0'); setNewPriority('medium') } }, [creating])
+  useEffect(() => { setConfirmDel(false); setLightbox(null) }, [drawerId])
   const phaseParents = tasks.filter((x) => !x.parentId && tasks.some((k) => k.parentId === x.id))
   const subtaskParents = tasks.filter((x) => !x.milestone && x.parentId && phaseParents.some((pp) => pp.id === x.parentId))
 
@@ -412,6 +484,15 @@ function MobileTaskSheet() {
             {subtaskParents.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
           </optgroup>
         </select>
+
+        <div className="mb-1 text-[11px] font-medium text-ink-500">Priority</div>
+        <div className="mb-3 grid grid-cols-4 gap-1.5">
+          {PRIORITY_QUICK.map((pr) => (
+            <button key={pr} onClick={() => setNewPriority(pr)} className={cn('flex items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-medium', newPriority === pr ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-line text-ink-600')}>
+              <Flag className="h-3 w-3" style={{ color: PRIORITY_META[pr].color }} /> {PRIORITY_META[pr].label}
+            </button>
+          ))}
+        </div>
 
         <div className="mb-1 text-[11px] font-medium text-ink-500">Assign to</div>
         <div className="mb-4 flex flex-wrap gap-1.5">
@@ -435,7 +516,7 @@ function MobileTaskSheet() {
               name: newName, phaseId: parentTask?.phaseId ?? 'const', parentId: newParent,
               start: '2026-08-03', end: '2026-08-05', baselineStart: '2026-08-03', baselineEnd: '2026-08-05',
               startTime: '07:00', endTime: '15:30',
-              progress: 0, status: 'not-started', priority: 'medium', deps: [], budget: 0, actualCost: 0, isNew: true,
+              progress: 0, status: 'not-started', priority: newPriority, deps: [], budget: 0, actualCost: 0, isNew: true,
               assignees: newAssignees.length ? newAssignees : undefined, assignee: newAssignees[0],
             }, asSub ? 'Subtask created' : 'Task created')
             closeDrawer()
@@ -453,12 +534,25 @@ function MobileTaskSheet() {
   const slip = diffDays(t.baselineEnd, t.end)
   const lateDone = t.status === 'done' && slip > 0
   const children = tasks.filter((x) => x.parentId === t.id)
+  // a subtask sits under a task that is itself under a phase (its parent has a parent)
+  const isSubtask = !t.milestone && !!t.parentId && tasks.some((x) => x.id === t.parentId && !!x.parentId)
+  const kind = t.milestone ? 'milestone' : isSubtask ? 'subtask' : 'task'
   const set = (patch: Partial<Task>) => updateTask(t.id, patch)
   const descendantIds = (() => { const s = new Set<string>([t.id]); const st = [t.id]; while (st.length) { const id = st.pop()!; tasks.filter((x) => x.parentId === id).forEach((k) => { s.add(k.id); st.push(k.id) }) } return s })()
   const parentOptions = tasks.filter((x) => !descendantIds.has(x.id))
+  const addPhoto = () => { const n = (t.attachments ?? []).filter((a) => a.kind === 'img').length + 1; set({ attachments: [...(t.attachments ?? []), { id: 'p' + Math.random().toString(36).slice(2, 6), name: `Site_photo_${n}.jpg`, size: '1.4 MB', kind: 'img' }] }); pushToast('Photo added', 'ok') }
+  const addFile = () => { const n = (t.attachments ?? []).filter((a) => a.kind !== 'img').length + 1; set({ attachments: [...(t.attachments ?? []), { id: 'f' + Math.random().toString(36).slice(2, 6), name: `Document_${n}.pdf`, size: '320 KB', kind: 'pdf' }] }); pushToast('File added', 'ok') }
+  const goComments = () => commentsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   return (
-    <Sheet onClose={closeDrawer} title={t.name} sub={`${t.wbs} · ${PHASES.find((p) => p.id === t.phaseId)?.name}`}>
-      {/* crew / attributes */}
+    <Sheet onClose={closeDrawer} title={t.name} sub={`${t.wbs} · ${PHASES.find((p) => p.id === t.phaseId)?.name} · ${kind[0].toUpperCase()}${kind.slice(1)}`}>
+      {/* quick actions */}
+      <div className="mb-3 grid grid-cols-3 gap-2">
+        <button onClick={addPhoto} className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-surface py-2.5 text-[12px] font-semibold text-ink-700 active:bg-brand-50"><ImagePlus className="h-4 w-4 text-brand-600" /> Add photo</button>
+        <button onClick={goComments} className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-surface py-2.5 text-[12px] font-semibold text-ink-700 active:bg-brand-50"><MessageSquare className="h-4 w-4 text-brand-600" /> Comment</button>
+        <button onClick={addFile} className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-surface py-2.5 text-[12px] font-semibold text-ink-700 active:bg-brand-50"><FilePlus className="h-4 w-4 text-brand-600" /> File</button>
+      </div>
+
+      {/* attributes */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {assigneesOf(t).length > 0 && (
           <span className="flex items-center gap-1.5 rounded-full bg-surface py-0.5 pl-0.5 pr-2 text-[11px] font-medium text-ink-700"><AvatarStack names={assigneesOf(t)} colorFn={memberColor} /> {assigneesOf(t).join(', ')}</span>
@@ -466,14 +560,62 @@ function MobileTaskSheet() {
         {t.priority && <Badge tone={PRIORITY_META[t.priority].tone}><Flag className="h-2.5 w-2.5" /> {PRIORITY_META[t.priority].label} priority</Badge>}
         {t.weatherSensitive && <Badge tone="warn"><CloudLightning className="h-2.5 w-2.5" /> Weather-sensitive</Badge>}
       </div>
-      {!t.milestone && (
-        <div className="mb-3 grid grid-cols-3 gap-2">
-          <DateCell icon={Calendar} label="Start" value={fmtDT(t.start, t.startTime)} />
-          <DateCell icon={CalendarCheck} label="Finish" value={fmtDT(t.end, t.endTime)} />
-          <DateCell icon={Timer} label="Duration" value={`${Math.max(1, workingDaysInclusive(t.start, t.end))} work-days`} />
+
+      {/* editable name */}
+      <div className="mb-3">
+        <div className="mb-1 text-[11px] font-medium text-ink-500">Name</div>
+        <input value={t.name} onChange={(e) => set({ name: e.target.value })} className="input" placeholder="Task name" />
+      </div>
+
+      {/* editable dates + times */}
+      {!t.milestone ? (
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <div>
+            <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink-500"><Calendar className="h-3 w-3" /> Start</div>
+            <input type="date" value={t.start} onChange={(e) => set({ start: e.target.value })} className="input mb-1" />
+            <input type="time" value={t.startTime ?? ''} onChange={(e) => set({ startTime: e.target.value || undefined })} className="input" />
+          </div>
+          <div>
+            <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink-500"><CalendarCheck className="h-3 w-3" /> Finish</div>
+            <input type="date" value={t.end} onChange={(e) => set({ end: e.target.value })} className="input mb-1" />
+            <input type="time" value={t.endTime ?? ''} onChange={(e) => set({ endTime: e.target.value || undefined })} className="input" />
+          </div>
+          <div className="col-span-2 flex items-center justify-between rounded-lg bg-surface px-2.5 py-1.5 text-[11px] text-ink-500">
+            <span>Duration <b className="font-semibold text-ink-800">{Math.max(1, workingDaysInclusive(t.start, t.end))} work-days</b></span>
+            <span>Planned <b className="font-semibold text-ink-800 tabular-nums">{fmtDate(t.baselineStart)}–{fmtDate(t.baselineEnd)}</b>{slip > 0 && <span className="ml-1 font-semibold text-[#b45309]">+{slip}d</span>}</span>
+          </div>
+        </div>
+      ) : (
+        <div className="mb-3">
+          <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink-500"><Diamond className="h-3 w-3" /> Milestone date</div>
+          <div className="grid grid-cols-2 gap-2">
+            <input type="date" value={t.end} onChange={(e) => set({ start: e.target.value, end: e.target.value })} className="input" />
+            <input type="time" value={t.endTime ?? ''} onChange={(e) => set({ startTime: e.target.value || undefined, endTime: e.target.value || undefined })} className="input" />
+          </div>
         </div>
       )}
-      {t.description && <p className="mb-3 rounded-lg bg-surface p-2.5 text-[13px] leading-relaxed text-ink-600">{t.description}</p>}
+
+      {/* editable priority */}
+      <div className="mb-3">
+        <div className="mb-1 text-[11px] font-medium text-ink-500">Priority</div>
+        <div className="grid grid-cols-5 gap-1.5">
+          <button onClick={() => set({ priority: undefined })} className={cn('rounded-lg border py-1.5 text-[11px] font-medium', !t.priority ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-line text-ink-600')}>None</button>
+          {PRIORITY_QUICK.map((pr) => (
+            <button key={pr} onClick={() => set({ priority: pr })} className={cn('flex items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-medium', t.priority === pr ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-line text-ink-600')}>
+              <Flag className="h-2.5 w-2.5" style={{ color: PRIORITY_META[pr].color }} /> {PRIORITY_META[pr].label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* actual / forecast dates — only when the task ran late */}
+      {notOnTime(t, today) && <div className="mb-3"><LateDates t={t} /></div>}
+
+      {/* editable description */}
+      <div className="mb-3">
+        <div className="mb-1 text-[11px] font-medium text-ink-500">Description</div>
+        <textarea value={t.description ?? ''} onChange={(e) => set({ description: e.target.value })} rows={3} placeholder="Add a description…" className="input resize-none" />
+      </div>
 
       {/* dependencies */}
       {t.deps.length > 0 && (
@@ -547,26 +689,38 @@ function MobileTaskSheet() {
         </div>
       )}
 
-      {/* photos & files — multiple */}
+      {/* photos & files — multiple, thumbnails tap to view */}
       <div className="mt-4">
-        <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-400">Photos &amp; files</div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Photos &amp; files</span>
+          <button onClick={addFile} className="flex items-center gap-1 text-[11px] font-semibold text-brand-700"><FilePlus className="h-3.5 w-3.5" /> Add file</button>
+        </div>
         <div className="flex gap-2 overflow-x-auto pb-1">
           {(t.attachments ?? []).filter((a) => a.kind === 'img').map((a) => (
             <div key={a.id} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-line">
-              <div className="grid h-full w-full place-items-center bg-gradient-to-br from-brand-100 to-brand-50"><Camera className="h-5 w-5 text-brand-400" /></div>
+              <button onClick={() => setLightbox(a.name)} className="grid h-full w-full place-items-center bg-gradient-to-br from-brand-100 to-brand-50 active:opacity-80"><Camera className="h-5 w-5 text-brand-400" /><ZoomIn className="absolute bottom-0.5 left-0.5 h-3 w-3 text-brand-500/70" /></button>
               <button onClick={() => set({ attachments: (t.attachments ?? []).filter((x) => x.id !== a.id) })} className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-ink-950/70 text-white"><X className="h-2.5 w-2.5" /></button>
             </div>
           ))}
-          <button onClick={() => { const n = (t.attachments ?? []).filter((a) => a.kind === 'img').length + 1; set({ attachments: [...(t.attachments ?? []), { id: 'p' + Math.random().toString(36).slice(2, 6), name: `Site_photo_${n}.jpg`, size: '1.4 MB', kind: 'img' }] }); pushToast('Photo added', 'ok') }} className="grid h-16 w-16 shrink-0 place-items-center rounded-lg border-2 border-dashed border-line text-ink-400 active:bg-surface"><Camera className="h-5 w-5" /></button>
+          <button onClick={addPhoto} className="grid h-16 w-16 shrink-0 place-items-center rounded-lg border-2 border-dashed border-line text-ink-400 active:bg-surface"><Camera className="h-5 w-5" /></button>
         </div>
         {(t.attachments ?? []).filter((a) => a.kind !== 'img').length > 0 && (
           <div className="mt-2 space-y-1">
             {(t.attachments ?? []).filter((a) => a.kind !== 'img').map((a) => (
-              <div key={a.id} className="flex items-center gap-2 rounded-lg border border-line px-2.5 py-1.5"><Paperclip className="h-3.5 w-3.5 text-brand-600" /><span className="flex-1 truncate text-[12px] text-ink-700">{a.name}</span><span className="text-[10px] text-ink-400">{a.size}</span></div>
+              <div key={a.id} className="flex items-center gap-2 rounded-lg border border-line px-2.5 py-1.5"><Paperclip className="h-3.5 w-3.5 shrink-0 text-brand-600" /><span className="flex-1 truncate text-[12px] text-ink-700">{a.name}</span><span className="text-[10px] text-ink-400">{a.size}</span><button onClick={() => set({ attachments: (t.attachments ?? []).filter((x) => x.id !== a.id) })} className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-surface text-ink-400"><X className="h-2.5 w-2.5" /></button></div>
             ))}
           </div>
         )}
       </div>
+
+      {/* photo lightbox */}
+      {lightbox && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-ink-950/80 p-6" onClick={() => setLightbox(null)}>
+          <div className="grid aspect-square w-full max-w-[240px] place-items-center rounded-2xl bg-gradient-to-br from-brand-200 to-brand-50"><Camera className="h-14 w-14 text-brand-400" /></div>
+          <div className="mt-3 text-[12px] font-medium text-white">{lightbox}</div>
+          <button onClick={() => setLightbox(null)} className="mt-3 rounded-full bg-white/15 px-4 py-1.5 text-[12px] font-semibold text-white">Close</button>
+        </div>
+      )}
       {lateDone && (
         <div className="mt-3 rounded-xl border border-warn/40 bg-warn/5 p-3">
           <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-warn">Finished late — why?</div>
@@ -575,14 +729,32 @@ function MobileTaskSheet() {
           )}
         </div>
       )}
-      <div className="mt-3 border-t border-line pt-3"><Comments task={t} /></div>
+      <div ref={commentsRef} className="mt-3 border-t border-line pt-3"><Comments task={t} /></div>
 
       <div className="mt-4 border-t border-line pt-3 text-[11px] text-ink-400">
         <div>Created by <b className="font-medium text-ink-600">{t.createdBy ?? '—'}</b> · {t.createdAt ?? '—'}</div>
         <div className="mt-0.5">Last updated by <b className="font-medium text-ink-600">{t.updatedBy ?? '—'}</b> · {t.updatedAt ?? '—'}</div>
       </div>
 
-      <button onClick={() => { deleteTask(t.id, 'Task deleted'); closeDrawer() }} className="mt-4 w-full rounded-xl border border-danger/30 py-2.5 text-[13px] font-medium text-danger active:bg-danger/5">Delete task</button>
+      {/* delete with warning */}
+      {!confirmDel ? (
+        <button onClick={() => setConfirmDel(true)} className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl border border-danger/30 py-2.5 text-[13px] font-medium text-danger active:bg-danger/5"><Trash2 className="h-4 w-4" /> Delete {kind}</button>
+      ) : (
+        <div className="mt-4 rounded-xl border border-danger/40 bg-danger/5 p-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+            <div className="text-[12px] leading-snug text-ink-700">
+              Delete <b className="font-semibold text-ink-950">{t.name}</b>?
+              {children.length > 0 && <> This also permanently deletes its <b className="font-semibold text-ink-950">{children.length} subtask{children.length > 1 ? 's' : ''}</b>.</>}
+              {' '}This can’t be undone.
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button onClick={() => setConfirmDel(false)} className="rounded-lg border border-line bg-white py-2 text-[13px] font-semibold text-ink-700 active:bg-surface">Cancel</button>
+            <button onClick={() => { deleteTask(t.id, `${t.name} deleted`); closeDrawer() }} className="flex items-center justify-center gap-1.5 rounded-lg bg-danger py-2 text-[13px] font-semibold text-white active:opacity-90"><Trash2 className="h-4 w-4" /> Delete</button>
+          </div>
+        </div>
+      )}
     </Sheet>
   )
 }
