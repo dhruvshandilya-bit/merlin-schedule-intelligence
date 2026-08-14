@@ -1,5 +1,6 @@
-import React from 'react'
-import { Info } from 'lucide-react'
+import React, { useState, useRef, useEffect } from 'react'
+import { Info, ChevronDown, Check, Image as ImageIcon, Paperclip, MessageSquare } from 'lucide-react'
+import { TEAM, memberColor } from '../data/project'
 
 export function cn(...xs: (string | false | null | undefined)[]) {
   return xs.filter(Boolean).join(' ')
@@ -153,6 +154,68 @@ export function AvatarStack({ names, colorFn, max = 3 }: { names: string[]; colo
       ))}
       {extra > 0 && <span className="-ml-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink-400 text-[9px] font-semibold text-white ring-2 ring-white">+{extra}</span>}
     </span>
+  )
+}
+
+// Multi-select people dropdown — replaces the busy grid of avatar chips.
+// Empty selection can mean "unassigned" (editor) or "everyone" (filter, via allLabel).
+export function AssigneeSelect({
+  selected, onChange, size = 'md', allLabel, placeholder = 'Assign people…',
+}: { selected: string[]; onChange: (names: string[]) => void; size?: 'sm' | 'md'; allLabel?: string; placeholder?: string }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [open])
+  const toggle = (name: string) => onChange(selected.includes(name) ? selected.filter((n) => n !== name) : [...selected, name])
+  const empty = selected.length === 0
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen((o) => !o)} className={cn('flex w-full items-center gap-2 rounded-lg border bg-white px-2.5 text-left transition-colors', open ? 'border-brand-400' : 'border-line', size === 'sm' ? 'h-8 text-[12px]' : 'h-9 text-[13px]')}>
+        {empty ? (
+          <span className="flex-1 text-ink-400">{allLabel ?? placeholder}</span>
+        ) : (
+          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+            <AvatarStack names={selected} colorFn={memberColor} max={4} />
+            <span className="truncate text-ink-700">{selected.length === 1 ? selected[0] : `${selected.length} people`}</span>
+          </span>
+        )}
+        <ChevronDown className={cn('h-4 w-4 shrink-0 text-ink-400 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="absolute z-[80] mt-1 max-h-64 w-full min-w-[220px] overflow-auto rounded-xl border border-line bg-white p-1 shadow-pop">
+          {!empty && <button type="button" onClick={() => onChange([])} className="mb-1 w-full rounded-md px-2 py-1 text-left text-[11px] font-semibold text-ink-400 hover:bg-surface">{allLabel ? `Show ${allLabel.toLowerCase()}` : 'Clear all'}</button>}
+          {TEAM.map((m) => {
+            const on = selected.includes(m.name)
+            return (
+              <button key={m.id} type="button" onClick={() => toggle(m.name)} className={cn('flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px]', on ? 'bg-brand-50' : 'hover:bg-surface')}>
+                <Avatar name={m.name} color={m.color} />
+                <span className="min-w-0 flex-1 truncate text-ink-800">{m.name} <span className="text-ink-400">· {m.role}</span></span>
+                <span className={cn('grid h-4 w-4 shrink-0 place-items-center rounded border', on ? 'border-brand-600 bg-brand-600 text-white' : 'border-ink-300')}>{on && <Check className="h-3 w-3" />}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Count badges for photos / files / comments on a card.
+export function MetaBadges({ task, className }: { task: { attachments?: { kind: string }[]; comments?: unknown[] }; className?: string }) {
+  const photos = (task.attachments ?? []).filter((a) => a.kind === 'img').length
+  const files = (task.attachments ?? []).filter((a) => a.kind !== 'img').length
+  const comments = task.comments?.length ?? 0
+  if (!photos && !files && !comments) return null
+  return (
+    <div className={cn('flex items-center gap-2.5 text-[11px] font-medium text-ink-400', className)}>
+      {photos > 0 && <span className="inline-flex items-center gap-1" title={`${photos} photo(s)`}><ImageIcon className="h-3.5 w-3.5" /> {photos}</span>}
+      {files > 0 && <span className="inline-flex items-center gap-1" title={`${files} file(s)`}><Paperclip className="h-3.5 w-3.5" /> {files}</span>}
+      {comments > 0 && <span className="inline-flex items-center gap-1" title={`${comments} comment(s)`}><MessageSquare className="h-3.5 w-3.5" /> {comments}</span>}
+    </div>
   )
 }
 

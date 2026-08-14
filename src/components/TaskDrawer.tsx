@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { X, Trash2, Plus, Diamond, Link2, GitBranch, AlertTriangle, CloudLightning, Route, ChevronRight, Paperclip, FileText, Image as ImageIcon, Flag, History, ArrowRightLeft, Clock } from 'lucide-react'
 import { useProject } from '../state/store'
 import { PHASES, TEAM, memberColor, assigneesOf, DELAY_REASONS } from '../data/project'
-import { Button, Badge, Avatar, InfoTip, HEALTH_META, STATUS_META, PRIORITY_META, cn } from './ui'
+import { Button, Badge, Avatar, InfoTip, AssigneeSelect, HEALTH_META, STATUS_META, PRIORITY_META, cn } from './ui'
 import Comments from './Comments'
 import { taskHealth, isOverdue, isDelayed, fmtDate, diffDays, workingDaysInclusive, rollupProgress, addWorkingDays } from '../lib/scheduling'
 import type { Task, DepType, TaskStatus, Priority, Attachment } from '../lib/types'
@@ -33,7 +33,9 @@ export default function TaskDrawer() {
   const open = !!drawerId || creating
   const [draft, setDraft] = useState<Task>(blankTask())
   const [subDrafts, setSubDrafts] = useState<string[]>([])
+  const [confirmDel, setConfirmDel] = useState(false)
   useEffect(() => { if (creating) { setDraft(blankTask()); setSubDrafts([]) } }, [creating])
+  useEffect(() => { setConfirmDel(false) }, [drawerId])
   if (!open) return null
   const task = creating ? draft : existing
   if (!task) return null
@@ -110,21 +112,7 @@ export default function TaskDrawer() {
           </div>
 
           <Field label="Assignees">
-            <div className="flex flex-wrap gap-1.5">
-              {TEAM.map((m) => {
-                const list = assigneesOf(task)
-                const on = list.includes(m.name)
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => { const next = on ? list.filter((x) => x !== m.name) : [...list, m.name]; set({ assignees: next, assignee: next[0] }) }}
-                    className={cn('flex items-center gap-1.5 rounded-full border py-0.5 pl-0.5 pr-2 text-2xs font-medium transition-colors', on ? 'border-brand-300 bg-brand-50 text-brand-700' : 'border-line text-ink-500 hover:bg-surface')}
-                  >
-                    <Avatar name={m.name} color={m.color} /> {m.name}
-                  </button>
-                )
-              })}
-            </div>
+            <AssigneeSelect selected={assigneesOf(task)} onChange={(next) => set({ assignees: next, assignee: next[0] })} />
           </Field>
 
           <Field label="Description">
@@ -149,8 +137,20 @@ export default function TaskDrawer() {
           </div>
           <div className="flex items-center justify-between rounded-lg bg-surface px-3 py-2 text-2xs text-ink-600">
             <span>Duration <b className="text-ink-950">{task.milestone ? '0d (milestone)' : `${Math.max(1, workingDaysInclusive(task.start, task.end))} working days`}</b></span>
-            <span>Baseline <b className="text-ink-950">{fmtDate(task.baselineStart)}–{fmtDate(task.baselineEnd)}</b></span>
+            <span>Planned <b className="text-ink-950">{fmtDate(task.baselineStart)}–{fmtDate(task.baselineEnd)}</b></span>
           </div>
+          {/* actual (done) / forecast (open) dates — only when the task did not stay on plan */}
+          {!creating && task.status !== 'cancelled' && (overdue || slip > 0 || diffDays(task.baselineStart, task.start) > 0) && (
+            <div className="rounded-lg border border-warn/40 bg-warn/5 px-3 py-2">
+              <div className="mb-1 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wide text-[#b45309]">
+                <History className="h-3.5 w-3.5" /> {task.status === 'done' ? 'Actual' : 'Forecast'} dates{slip > 0 ? ` · ${slip}d late` : ''}
+              </div>
+              <div className="flex items-center gap-6 text-[13px]">
+                <span>{task.status === 'done' ? 'Actual start' : 'Forecast start'} <b className="tabular-nums text-ink-950">{fmtDate(task.start)}{task.startTime ? ` · ${task.startTime}` : ''}</b></span>
+                <span>{task.status === 'done' ? 'Actual finish' : 'Forecast finish'} <b className="tabular-nums text-ink-950">{fmtDate(task.end)}{task.endTime ? ` · ${task.endTime}` : ''}</b></span>
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
             <div>
@@ -306,10 +306,16 @@ export default function TaskDrawer() {
               }}>Create task</Button>
               <Button variant="ghost" onClick={closeDrawer}>Cancel</Button>
             </>
+          ) : confirmDel ? (
+            <div className="flex w-full items-center gap-2">
+              <span className="flex items-center gap-1.5 text-[13px] text-ink-700"><AlertTriangle className="h-4 w-4 shrink-0 text-danger" /> Delete <b className="font-semibold text-ink-950">{task.name}</b>{children.length > 0 ? ` and its ${children.length} subtask${children.length > 1 ? 's' : ''}` : ''}? This can’t be undone.</span>
+              <Button variant="outline" size="sm" className="ml-auto" onClick={() => setConfirmDel(false)}>Cancel</Button>
+              <Button variant="danger" size="sm" onClick={() => { deleteTask(task.id, `${task.name} deleted`); closeDrawer() }}><Trash2 className="h-4 w-4" /> Delete</Button>
+            </div>
           ) : (
             <>
               <Button variant="outline" onClick={closeDrawer}>Close</Button>
-              <button onClick={() => { deleteTask(task.id, 'Task deleted'); closeDrawer() }} className="ml-auto flex items-center gap-1.5 text-[13px] font-medium text-danger hover:underline"><Trash2 className="h-4 w-4" /> Delete task</button>
+              <button onClick={() => setConfirmDel(true)} className="ml-auto flex items-center gap-1.5 text-[13px] font-medium text-danger hover:underline"><Trash2 className="h-4 w-4" /> Delete {task.milestone ? 'milestone' : task.parentId && !/\.0$/.test(tasks.find((x) => x.id === task.parentId)?.wbs ?? '') ? 'subtask' : 'task'}</button>
             </>
           )}
         </div>

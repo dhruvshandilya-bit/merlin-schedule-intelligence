@@ -2,7 +2,6 @@ import React from 'react'
 import { Sparkles, AlertTriangle, CheckCircle2, Clock, ArrowUpRight } from 'lucide-react'
 import { PORTFOLIO } from '../data/project'
 import { Card, Badge, cn } from './ui'
-import Workload from './Workload'
 
 const HEALTH: Record<string, { dot: string; ring: string; label: string; tone: any }> = {
   green: { dot: '#1fc16b', ring: 'border-l-[#1fc16b]', label: 'On track', tone: 'ok' },
@@ -91,11 +90,6 @@ export default function Portfolio({ onOpenProject }: { onOpenProject: (id: strin
             </Card>
           )
         })}
-      </div>
-
-      {/* merged team workload */}
-      <div className="border-t border-line pt-5">
-        <Workload />
       </div>
     </div>
   )

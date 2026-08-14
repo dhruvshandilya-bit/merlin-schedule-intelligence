@@ -4,7 +4,7 @@ import {
 } from 'lucide-react'
 import { useProject } from '../state/store'
 import { PHASES, TEAM, memberColor, assigneesOf, DELAY_REASONS } from '../data/project'
-import { Avatar, AvatarStack, Badge, HEALTH_META, STATUS_META, PRIORITY_META, cn } from './ui'
+import { Avatar, AvatarStack, Badge, AssigneeSelect, MetaBadges, HEALTH_META, STATUS_META, PRIORITY_META, cn } from './ui'
 
 const DEP_LABEL: Record<string, string> = { FS: 'after it finishes', SS: 'when it starts', FF: 'to finish with it', SF: 'to start when it finishes' }
 import Comments from './Comments'
@@ -69,43 +69,38 @@ const BANNER_STYLE: Record<string, string> = {
 
 export default function MobileApp() {
   const { tasks, cpm, today, openCreate } = useProject()
-  const [assignee, setAssignee] = useState<string | null>(null)
+  const [assignees, setAssignees] = useState<string[]>([])
   const [quick, setQuick] = useState<'all' | 'overdue' | 'critical'>('all')
   const [search, setSearch] = useState('')
-  const [openMs, setOpenMs] = useState<string | null>(null)
   const q = search.trim().toLowerCase()
+
+  // Phases (the top-level summaries) are the sections; their children are the tasks.
+  const phaseParents = tasks.filter((t) => !t.parentId && tasks.some((k) => k.parentId === t.id))
+
   const matchesSearch = (t: Task) => {
     if (!q) return true
     if (t.name.toLowerCase().includes(q) || t.wbs.includes(q)) return true
     return tasks.some((k) => k.parentId === t.id && k.name.toLowerCase().includes(q))
   }
-
-  const topTasks = tasks.filter((t) => !t.parentId) // phase parents
-  const assignees = TEAM.filter((m) => tasks.some((t) => t.assignee === m.name))
-
-  // Milestone-driven grouping: each milestone owns the tile-tasks that lead up to it
-  const tileTasks = tasks.filter((t) => t.parentId && topTasks.some((p) => p.id === t.parentId))
-  const groups: { milestone: Task | null; tasks: Task[] }[] = []
-  let bucket: Task[] = []
-  tileTasks.forEach((t) => {
-    if (t.milestone) { groups.push({ milestone: t, tasks: bucket }); bucket = [] }
-    else bucket.push(t)
-  })
-  if (bucket.length) groups.push({ milestone: null, tasks: bucket })
-
-  const leafMatchesAssignee = (leaf: Task) => !assignee || leaf.assignee === assignee
+  const peopleOn = (t: Task) => {
+    const s = new Set<string>(assigneesOf(t))
+    tasks.filter((x) => x.parentId === t.id).forEach((k) => assigneesOf(k).forEach((n) => s.add(n)))
+    return s
+  }
   const taskVisible = (t: Task) => {
     const kids = tasks.filter((x) => x.parentId === t.id)
     const self = kids.length ? kids : [t]
-    // assignee filter: task shows if it or any subtask matches
-    if (assignee && !(t.assignee === assignee || self.some((k) => k.assignee === assignee))) return false
-    if (quick === 'overdue') return self.some((k) => isOverdue(k, today)) || isOverdue(t, today)
-    if (quick === 'critical') return self.some((k) => cpm[k.id]?.critical) || !!cpm[t.id]?.critical
+    if (assignees.length) { const on = peopleOn(t); if (!assignees.some((a) => on.has(a))) return false }
+    if (quick === 'overdue' && !(self.some((k) => isOverdue(k, today)) || isOverdue(t, today))) return false
+    if (quick === 'critical' && !(self.some((k) => cpm[k.id]?.critical) || !!cpm[t.id]?.critical)) return false
+    if (!matchesSearch(t)) return false
     return true
   }
 
-  const milestoneGroups = groups.filter((g) => g.milestone)
-  const activeGroup = openMs ? groups.find((g) => g.milestone?.id === openMs) : null
+  const sections = phaseParents
+    .map((pp) => ({ phase: pp, items: tasks.filter((t) => t.parentId === pp.id).filter(taskVisible) }))
+    .filter((s) => s.items.length)
+  const totalShown = sections.reduce((n, s) => n + s.items.length, 0)
 
   return (
     <div className="flex h-full flex-col bg-surface">
@@ -115,174 +110,67 @@ export default function MobileApp() {
         <span className="flex items-center gap-1">●●● Wi-Fi 100%</span>
       </div>
 
-      {!activeGroup ? (
-        /* ═══ LEVEL 1 — milestones only ═══ */
-        <>
-          <div className="shrink-0 bg-white px-4 pt-1">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-[11px] font-medium text-ink-500">CB-PRJ-00441 · Construction</div>
-                <div className="text-[18px] font-bold text-ink-950">Coley — 24×40 Garage</div>
-              </div>
-              <button onClick={openCreate} className="grid h-9 w-9 place-items-center rounded-full bg-brand-600 text-white active:scale-95"><Plus className="h-5 w-5" /></button>
-            </div>
+      <div className="shrink-0 bg-white px-4 pt-1">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-[11px] font-medium text-ink-500">CB-PRJ-00441 · Construction</div>
+            <div className="text-[18px] font-bold text-ink-950">Coley — 24×40 Garage</div>
           </div>
+          <button onClick={openCreate} className="grid h-9 w-9 place-items-center rounded-full bg-brand-600 text-white active:scale-95"><Plus className="h-5 w-5" /></button>
+        </div>
+      </div>
 
-          <MetricsBand />
+      <MetricsBand />
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-auto p-3">
-            <div className="px-1 text-[12px] font-semibold uppercase tracking-wide text-ink-500">Milestones · tap to open</div>
-            {milestoneGroups.map((g) => (
-              <MilestoneTile key={g.milestone!.id} ms={g.milestone!} feeders={g.tasks} onOpen={() => setOpenMs(g.milestone!.id)} />
+      {/* filters — always visible */}
+      <div className="shrink-0 border-b border-line bg-white px-3 pb-2">
+        <div className="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-2">
+          <Search className="h-4 w-4 shrink-0 text-ink-400" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks" className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-ink-400" />
+          {search && <button onClick={() => setSearch('')} className="text-ink-400"><X className="h-4 w-4" /></button>}
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1.5 overflow-x-auto">
+            {([['all', 'All'], ['overdue', 'Overdue'], ['critical', 'Critical path']] as const).map(([k, label]) => (
+              <button key={k} onClick={() => setQuick(k)} className={cn('shrink-0 rounded-full border px-3 py-1 text-[12px] font-medium', quick === k ? 'border-brand-600 bg-brand-600 text-white' : 'border-line bg-white text-ink-600')}>{label}</button>
             ))}
           </div>
-        </>
-      ) : (
-        /* ═══ LEVEL 2 — inside a milestone ═══ */
-        <>
-          <div className="shrink-0 border-b border-line bg-white px-3 pt-1">
-            <div className="flex items-center gap-2">
-              <button onClick={() => { setOpenMs(null); setQuick('all'); setAssignee(null); setSearch('') }} className="flex items-center gap-1 rounded-lg py-1.5 pr-2 text-[13px] font-semibold text-brand-700 active:opacity-60">
-                <ChevronRight className="h-5 w-5 rotate-180" /> Milestones
-              </button>
-              <span className="ml-auto text-[11px] font-medium text-ink-400">Inside milestone</span>
-            </div>
-            {/* search */}
-            <div className="mb-2 mt-1 flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-2">
-              <Search className="h-4 w-4 shrink-0 text-ink-400" />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search in this milestone" className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-ink-400" />
-              {search && <button onClick={() => setSearch('')} className="text-ink-400"><X className="h-4 w-4" /></button>}
-            </div>
-            <div className="mb-2 flex gap-1.5 overflow-x-auto">
-              {([['all', 'All tasks'], ['overdue', 'Overdue'], ['critical', 'Critical path']] as const).map(([k, label]) => (
-                <button key={k} onClick={() => setQuick(k)} className={cn('shrink-0 rounded-full border px-3 py-1 text-[12px] font-medium', quick === k ? 'border-brand-600 bg-brand-600 text-white' : 'border-line bg-white text-ink-600')}>{label}</button>
-              ))}
-            </div>
-            {/* assignee filter */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-2">
-              <Filter className="h-3.5 w-3.5 shrink-0 text-ink-400" />
-              <button onClick={() => setAssignee(null)} className={cn('shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium', !assignee ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-line text-ink-500')}>Everyone</button>
-              {assignees.map((m) => (
-                <button key={m.id} onClick={() => setAssignee(assignee === m.name ? null : m.name)} className={cn('flex shrink-0 items-center gap-1.5 rounded-full border py-0.5 pl-0.5 pr-2 text-[11px] font-medium', assignee === m.name ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-line text-ink-600')}>
-                  <Avatar name={m.name} color={m.color} /> {m.name}
-                </button>
-              ))}
-            </div>
+          <div className="ml-auto w-[150px] shrink-0">
+            <AssigneeSelect selected={assignees} onChange={setAssignees} size="sm" allLabel="Everyone" />
           </div>
+        </div>
+      </div>
 
-          <div className="min-h-0 flex-1 overflow-auto p-3">
-            <MilestoneTile ms={activeGroup.milestone!} feeders={activeGroup.tasks} />
-            {(() => {
-              const visible = activeGroup.tasks.filter((t) => taskVisible(t) && leafOrHasMatch(t, tasks, assignee) && matchesSearch(t))
-              if (!visible.length) return <div className="mt-4 rounded-xl border border-dashed border-line py-8 text-center text-[13px] text-ink-400">No tasks match your filters</div>
-              return (
-                <div className="mt-3 space-y-2.5">
-                  {visible.map((t) => <TaskTile key={t.id} t={t} assigneeFilter={assignee} />)}
-                </div>
-              )
-            })()}
-          </div>
-        </>
-      )}
+      <div className="min-h-0 flex-1 space-y-4 overflow-auto p-3">
+        {totalShown === 0 && <div className="mt-4 rounded-xl border border-dashed border-line py-10 text-center text-[13px] text-ink-400">No tasks match your filters</div>}
+        {sections.map((s) => <PhaseSection key={s.phase.id} phase={s.phase} items={s.items} />)}
+      </div>
 
       <MobileTaskSheet />
     </div>
   )
 }
 
-function leafDescendants(tasks: Task[], id: string): Task[] {
-  const kids = tasks.filter((t) => t.parentId === id)
-  if (!kids.length) { const t = tasks.find((x) => x.id === id); return t ? [t] : [] }
-  return kids.flatMap((k) => leafDescendants(tasks, k.id))
-}
-
-// ── Milestone hero tile (its own rolled-up completion metric) ─
-function MilestoneTile({ ms, feeders, onOpen }: { ms: Task; feeders: Task[]; onOpen?: () => void }) {
+// ── Phase section (groups tasks; replaces milestone navigation) ─
+function PhaseSection({ phase, items }: { phase: Task; items: Task[] }) {
   const { tasks, today } = useProject()
-  const leaves = feeders.flatMap((f) => leafDescendants(tasks, f.id))
-  const total = leaves.length
-  const done = leaves.filter((t) => t.status === 'done').length
-  const overdue = leaves.filter((t) => isOverdue(t, today)).length
-  const blocked = leaves.filter((t) => t.status === 'blocked').length
-  let w = 0, p = 0
-  leaves.forEach((t) => { const d = Math.max(1, t.milestone ? 1 : workingDaysInclusive(t.start, t.end)); w += d; p += d * (t.progress / 100) })
-  const pct = w ? Math.round((p / w) * 100) : 0
-  const slip = diffDays(ms.baselineEnd, ms.end)
-  const isDone = ms.status === 'done' || ms.progress >= 100
-  const color = isDone ? '#22c55e' : overdue > 0 ? '#fb3748' : slip > 0 ? '#fa7319' : '#1fc16b'
-  const label = isDone ? 'Completed' : overdue > 0 ? 'At risk' : slip > 0 ? `Slipping +${slip}d` : 'On track'
-  const phase = PHASES.find((x) => x.id === ms.phaseId)?.name
-  // window start = earliest feeder start leading up to this milestone
-  const winStart = leaves.length ? leaves.reduce((m, t) => (diffDays(t.start, m) > 0 ? m : t.start), leaves[0].start) : ms.start
-  const Wrap: any = onOpen ? 'button' : 'div'
+  const pct = rollupProgress(tasks, phase.id)
+  const h = rollupHealth(tasks, phase.id, today)
+  const kids = tasks.filter((t) => t.parentId === phase.id)
+  const done = kids.filter((t) => t.status === 'done').length
   return (
-    <Wrap onClick={onOpen} className={cn('block w-full rounded-2xl border border-line bg-white p-3.5 text-left shadow-card', onOpen && 'transition-shadow active:scale-[0.99] active:shadow-none')}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2.5">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-surface">
-            {isDone ? <CheckCircle2 className="h-5 w-5" style={{ color }} /> : <Diamond className="h-4 w-4" style={{ color }} />}
-          </span>
-          <div className="min-w-0">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-ink-400">Milestone · {phase}</div>
-            <div className="text-[16px] font-bold leading-tight text-ink-950">{ms.name}</div>
-          </div>
-        </div>
-        <div className="shrink-0 text-right">
-          <div className="text-[9px] uppercase tracking-wide text-ink-400">Target</div>
-          <div className="text-[13px] font-bold tabular-nums text-ink-950">{fmtDT(ms.end, ms.endTime)}</div>
-          <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold text-ink-500"><span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />{label}</span>
-        </div>
+    <div>
+      <div className="mb-2 flex items-center gap-2 px-1">
+        <span className="h-2 w-2 rounded-full" style={{ background: HEALTH_META[h]?.color }} />
+        <span className="text-[13px] font-bold uppercase tracking-wide text-ink-700">{phase.name}</span>
+        <span className="rounded-full bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-ink-500">{done}/{kids.length} done · {pct}%</span>
+        <span className="ml-auto text-[11px] font-medium text-ink-400">{items.length} shown</span>
       </div>
-
-      {/* start → target window */}
-      <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-line bg-surface/60 px-2.5 py-1.5 text-[11px]">
-        <Calendar className="h-3.5 w-3.5 shrink-0 text-ink-400" />
-        <span className="font-semibold uppercase tracking-wide text-ink-400">Start</span>
-        <span className="font-bold tabular-nums text-ink-800">{fmtDate(winStart)}</span>
-        <ChevronRight className="h-3 w-3 text-ink-300" />
-        <span className="font-semibold uppercase tracking-wide text-ink-400">Target</span>
-        <span className="font-bold tabular-nums text-ink-800">{fmtDT(ms.end, ms.endTime)}</span>
+      <div className="space-y-2.5">
+        {items.map((t) => <TaskCard key={t.id} t={t} />)}
       </div>
-
-      {!isDone && (overdue > 0 || slip > 0) && (
-        <div className="mt-2.5 flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-semibold" style={{ background: color + '1c', color }}>
-          {overdue > 0 ? <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> : <Clock className="h-3.5 w-3.5 shrink-0" />}
-          {overdue > 0 ? `${overdue} task${overdue > 1 ? 's' : ''} feeding this are overdue — this date is at risk` : `Trending ${slip} days late — feeding work is behind schedule`}
-        </div>
-      )}
-
-      {ms.description && <p className="mt-2 text-[12px] leading-relaxed text-ink-600">{ms.description}</p>}
-
-      <div className="mt-3 flex gap-2">
-        <MStat label="Tasks done" value={`${done}/${total}`} />
-        <MStat label="Completion" value={`${pct}%`} color={color} />
-        <MStat label={overdue ? 'Overdue' : blocked ? 'Blocked' : 'Remaining'} value={overdue ? `${overdue}` : blocked ? `${blocked}` : `${total - done}`} color={overdue || blocked ? color : undefined} />
-      </div>
-      <div className="mt-2.5 flex h-2 w-full overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} /></div>
-      {onOpen ? (
-        <div className="mt-2.5 flex items-center justify-between border-t border-line pt-2.5 text-[13px] font-semibold text-brand-700">
-          <span>Open · {total} task{total !== 1 ? 's' : ''} inside</span>
-          <ChevronRight className="h-4 w-4" />
-        </div>
-      ) : (
-        <div className="mt-1.5 text-[10px] text-ink-500">Completion = how much of the work leading to this milestone is complete</div>
-      )}
-    </Wrap>
-  )
-}
-function MStat({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <div className="flex-1 rounded-lg border border-line bg-surface/60 px-2 py-1.5 text-center">
-      <div className="text-[14px] font-bold tabular-nums" style={{ color: color ?? '#171717' }}>{value}</div>
-      <div className="text-[9px] uppercase tracking-wide text-ink-400">{label}</div>
     </div>
   )
-}
-
-function leafOrHasMatch(t: Task, tasks: Task[], assignee: string | null) {
-  if (!assignee) return true
-  const kids = tasks.filter((x) => x.parentId === t.id)
-  return t.assignee === assignee || kids.some((k) => k.assignee === assignee)
 }
 
 // ── Metrics band ───────────────────────────────────────
@@ -352,11 +240,12 @@ function MetricMini({ label, value, sub, tone }: { label: string; value: string;
   )
 }
 
-// ── Task tile (big, contains subtasks) ─────────────────
-function TaskTile({ t, assigneeFilter }: { t: Task; assigneeFilter: string | null }) {
+// ── Task card (contains subtasks; on-card quick actions + badges) ─
+function TaskCard({ t }: { t: Task }) {
   const { tasks, today, cpm, openDrawer } = useProject()
   const kids = tasks.filter((x) => x.parentId === t.id)
   const isSummary = kids.length > 0
+  const checkpoint = t.milestone || t.start === t.end
   const h = isSummary ? rollupHealth(tasks, t.id, today) : taskHealth(t, today)
   const pct = isSummary ? rollupProgress(tasks, t.id) : t.progress
   const info = cpm[t.id]
@@ -364,55 +253,73 @@ function TaskTile({ t, assigneeFilter }: { t: Task; assigneeFilter: string | nul
   const critical = info?.critical
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-white shadow-card">
-      <div className="flex">
-        <div className="min-w-0 flex-1 p-3">
-          {/* header */}
-          <button onClick={() => openDrawer(t.id)} className="flex w-full items-start gap-2 text-left">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                {t.milestone && <Diamond className="h-3.5 w-3.5 shrink-0 fill-brand-600 text-brand-600" />}
-                {t.priority && (t.priority === 'high' || t.priority === 'critical') && <Flag className="h-3.5 w-3.5 shrink-0" style={{ color: PRIORITY_META[t.priority].color }} />}
-                <span className="truncate text-[15px] font-bold text-ink-950">{t.name}</span>
-              </div>
-              <div className="mt-1 flex items-center gap-2 text-[12px] text-ink-500">
-                <span className="tabular-nums">{t.wbs}</span>
-                <span className="flex items-center gap-1 font-medium text-ink-500"><span className="h-1.5 w-1.5 rounded-full" style={{ background: HEALTH_META[h]?.color }} />{HEALTH_META[h]?.label}</span>
-                {!t.milestone && pct > 0 && pct < 100 && <span className="font-semibold text-ink-500">{pct}% done</span>}
-                {critical && <span className="flex items-center gap-0.5 text-danger"><Route className="h-3 w-3" /> Critical</span>}
-                {isSummary && <span className="flex items-center gap-0.5"><GitBranch className="h-3 w-3" /> {kids.length} subtasks</span>}
-              </div>
-            </div>
-            <AvatarStack names={assigneesOf(t)} colorFn={memberColor} />
-          </button>
-
-          {/* banners */}
-          {banners.map((b, i) => (
-            <div key={i} className={cn('mt-2 flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-medium', BANNER_STYLE[b.tone])}>
-              <b.icon className="h-3.5 w-3.5 shrink-0" /> {b.text}
-            </div>
-          ))}
-
-          {/* dates — planned; actual/forecast shown below only when late */}
-          {!t.milestone ? (
-            <>
-              <div className="mt-2.5 grid grid-cols-3 gap-2">
-                <DateCell icon={Calendar} label="Start" value={fmtDT(t.baselineStart, t.startTime)} />
-                <DateCell icon={CalendarCheck} label="End" value={fmtDT(t.baselineEnd, t.endTime)} />
-                <DateCell icon={Timer} label="Duration" value={`${Math.max(1, workingDaysInclusive(t.start, t.end))}d`} />
-              </div>
-              {notOnTime(t, today) && <LateDates t={t} />}
-            </>
-          ) : (
-            <div className="mt-2.5"><DateCell icon={Diamond} label="Milestone date" value={fmtDT(t.end, t.endTime)} /></div>
-          )}
-
-          {/* description — full, wrapped */}
-          {(t.description || t.note) && <p className="mt-2 whitespace-pre-line text-[12px] leading-relaxed text-ink-600">{t.description || t.note}</p>}
-
-
+    <div className="overflow-hidden rounded-2xl border border-line bg-white p-3 shadow-card">
+      {/* header */}
+      <button onClick={() => openDrawer(t.id)} className="flex w-full items-start gap-2 text-left">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            {t.priority && (t.priority === 'high' || t.priority === 'critical') && <Flag className="h-3.5 w-3.5 shrink-0" style={{ color: PRIORITY_META[t.priority].color }} />}
+            <span className="truncate text-[15px] font-bold text-ink-950">{t.name}</span>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-500">
+            <span className="tabular-nums">{t.wbs}</span>
+            <span className="flex items-center gap-1 font-medium text-ink-500"><span className="h-1.5 w-1.5 rounded-full" style={{ background: HEALTH_META[h]?.color }} />{HEALTH_META[h]?.label}</span>
+            {!checkpoint && pct > 0 && pct < 100 && <span className="font-semibold text-ink-500">{pct}% done</span>}
+            {critical && <span className="flex items-center gap-0.5 text-danger"><Route className="h-3 w-3" /> Critical</span>}
+            {isSummary && <span className="flex items-center gap-0.5"><GitBranch className="h-3 w-3" /> {kids.length} subtasks</span>}
+          </div>
         </div>
+        <AvatarStack names={assigneesOf(t)} colorFn={memberColor} />
+      </button>
+
+      {/* banners */}
+      {banners.map((b, i) => (
+        <div key={i} className={cn('mt-2 flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-medium', BANNER_STYLE[b.tone])}>
+          <b.icon className="h-3.5 w-3.5 shrink-0" /> {b.text}
+        </div>
+      ))}
+
+      {/* dates — planned; actual/forecast shown below only when late */}
+      {!checkpoint ? (
+        <>
+          <div className="mt-2.5 grid grid-cols-3 gap-2">
+            <DateCell icon={Calendar} label="Start" value={fmtDT(t.baselineStart, t.startTime)} />
+            <DateCell icon={CalendarCheck} label="End" value={fmtDT(t.baselineEnd, t.endTime)} />
+            <DateCell icon={Timer} label="Duration" value={`${Math.max(1, workingDaysInclusive(t.start, t.end))}d`} />
+          </div>
+          {notOnTime(t, today) && <LateDates t={t} />}
+        </>
+      ) : (
+        <>
+          <div className="mt-2.5"><DateCell icon={Calendar} label="Date" value={fmtDT(t.end, t.endTime)} /></div>
+          {notOnTime(t, today) && <LateDates t={t} />}
+        </>
+      )}
+
+      {/* description — full, wrapped */}
+      {(t.description || t.note) && <p className="mt-2 whitespace-pre-line text-[12px] leading-relaxed text-ink-600">{t.description || t.note}</p>}
+
+      {/* meta badges + on-card quick actions */}
+      <div className="mt-2.5 flex items-center gap-2 border-t border-line/70 pt-2">
+        <MetaBadges task={t} />
+        <div className="ml-auto"><QuickActions t={t} /></div>
       </div>
+    </div>
+  )
+}
+
+// ── On-card quick actions: add photo / comment / file ──
+function QuickActions({ t, compact }: { t: Task; compact?: boolean }) {
+  const { updateTask, openDrawer, pushToast } = useProject()
+  const att = t.attachments ?? []
+  const addPhoto = () => { const n = att.filter((a) => a.kind === 'img').length + 1; updateTask(t.id, { attachments: [...att, { id: 'p' + Math.random().toString(36).slice(2, 6), name: `Site_photo_${n}.jpg`, size: '1.4 MB', kind: 'img' }] }); pushToast('Photo added', 'ok') }
+  const addFile = () => { const n = att.filter((a) => a.kind !== 'img').length + 1; updateTask(t.id, { attachments: [...att, { id: 'f' + Math.random().toString(36).slice(2, 6), name: `Document_${n}.pdf`, size: '320 KB', kind: 'pdf' }] }); pushToast('File added', 'ok') }
+  const size = compact ? 'h-7 w-7' : 'h-8 w-8'
+  return (
+    <div className="flex items-center gap-1.5">
+      <button onClick={addPhoto} title="Add photo" className={cn('grid shrink-0 place-items-center rounded-lg border border-line bg-surface text-brand-600 active:bg-brand-50', size)}><ImagePlus className="h-4 w-4" /></button>
+      <button onClick={() => openDrawer(t.id)} title="Comment" className={cn('grid shrink-0 place-items-center rounded-lg border border-line bg-surface text-brand-600 active:bg-brand-50', size)}><MessageSquare className="h-4 w-4" /></button>
+      <button onClick={addFile} title="Add file" className={cn('grid shrink-0 place-items-center rounded-lg border border-line bg-surface text-brand-600 active:bg-brand-50', size)}><FilePlus className="h-4 w-4" /></button>
     </div>
   )
 }
@@ -433,8 +340,8 @@ function SubtaskRow({ t }: { t: Task }) {
   const overdue = isOverdue(t, today)
   const hiPri = t.priority === 'high' || t.priority === 'critical'
   return (
-    <button onClick={() => openDrawer(t.id)} className="w-full overflow-hidden rounded-xl border border-line bg-white text-left active:bg-surface">
-      <div className="flex items-center gap-2.5 p-2.5">
+    <div className="overflow-hidden rounded-xl border border-line bg-white">
+      <button onClick={() => openDrawer(t.id)} className="flex w-full items-center gap-2.5 p-2.5 text-left active:bg-surface">
         <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: HEALTH_META[h]?.color }} />
         <div className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
@@ -445,9 +352,13 @@ function SubtaskRow({ t }: { t: Task }) {
         </div>
         <AvatarStack names={assigneesOf(t)} colorFn={memberColor} />
         <ChevronRight className="h-4 w-4 shrink-0 text-ink-300" />
+      </button>
+      {notOnTime(t, today) && <div className="px-2.5 pb-2"><LateDates t={t} /></div>}
+      <div className="flex items-center gap-2 border-t border-line/70 px-2.5 py-2">
+        <MetaBadges task={t} />
+        <div className="ml-auto"><QuickActions t={t} compact /></div>
       </div>
-      {notOnTime(t, today) && <div className="px-2.5 pb-2.5"><LateDates t={t} /></div>}
-    </button>
+    </div>
   )
 }
 
@@ -486,25 +397,12 @@ function MobileTaskSheet() {
         </select>
 
         <div className="mb-1 text-[11px] font-medium text-ink-500">Priority</div>
-        <div className="mb-3 grid grid-cols-4 gap-1.5">
-          {PRIORITY_QUICK.map((pr) => (
-            <button key={pr} onClick={() => setNewPriority(pr)} className={cn('flex items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-medium', newPriority === pr ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-line text-ink-600')}>
-              <Flag className="h-3 w-3" style={{ color: PRIORITY_META[pr].color }} /> {PRIORITY_META[pr].label}
-            </button>
-          ))}
-        </div>
+        <select value={newPriority} onChange={(e) => setNewPriority(e.target.value as Priority)} className="input mb-3">
+          {PRIORITY_QUICK.map((pr) => <option key={pr} value={pr}>{PRIORITY_META[pr].label}</option>)}
+        </select>
 
         <div className="mb-1 text-[11px] font-medium text-ink-500">Assign to</div>
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {TEAM.map((m) => {
-            const on = newAssignees.includes(m.name)
-            return (
-              <button key={m.id} onClick={() => setNewAssignees((a) => on ? a.filter((x) => x !== m.name) : [...a, m.name])} className={cn('flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-2 text-[11px] font-medium', on ? 'border-brand-300 bg-brand-50 text-brand-700' : 'border-line text-ink-500')}>
-                <Avatar name={m.name} color={m.color} /> {m.name.split(' ')[0]}
-              </button>
-            )
-          })}
-        </div>
+        <div className="mb-4"><AssigneeSelect selected={newAssignees} onChange={setNewAssignees} /></div>
 
         <button
           onClick={() => {
@@ -535,8 +433,8 @@ function MobileTaskSheet() {
   const lateDone = t.status === 'done' && slip > 0
   const children = tasks.filter((x) => x.parentId === t.id)
   // a subtask sits under a task that is itself under a phase (its parent has a parent)
-  const isSubtask = !t.milestone && !!t.parentId && tasks.some((x) => x.id === t.parentId && !!x.parentId)
-  const kind = t.milestone ? 'milestone' : isSubtask ? 'subtask' : 'task'
+  const isSubtask = !!t.parentId && tasks.some((x) => x.id === t.parentId && !!x.parentId)
+  const kind = isSubtask ? 'subtask' : 'task'
   const set = (patch: Partial<Task>) => updateTask(t.id, patch)
   const descendantIds = (() => { const s = new Set<string>([t.id]); const st = [t.id]; while (st.length) { const id = st.pop()!; tasks.filter((x) => x.parentId === id).forEach((k) => { s.add(k.id); st.push(k.id) }) } return s })()
   const parentOptions = tasks.filter((x) => !descendantIds.has(x.id))
@@ -587,7 +485,7 @@ function MobileTaskSheet() {
         </div>
       ) : (
         <div className="mb-3">
-          <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink-500"><Diamond className="h-3 w-3" /> Milestone date</div>
+          <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-ink-500"><Calendar className="h-3 w-3" /> Date</div>
           <div className="grid grid-cols-2 gap-2">
             <input type="date" value={t.end} onChange={(e) => set({ start: e.target.value, end: e.target.value })} className="input" />
             <input type="time" value={t.endTime ?? ''} onChange={(e) => set({ startTime: e.target.value || undefined, endTime: e.target.value || undefined })} className="input" />
@@ -595,16 +493,20 @@ function MobileTaskSheet() {
         </div>
       )}
 
-      {/* editable priority */}
-      <div className="mb-3">
-        <div className="mb-1 text-[11px] font-medium text-ink-500">Priority</div>
-        <div className="grid grid-cols-5 gap-1.5">
-          <button onClick={() => set({ priority: undefined })} className={cn('rounded-lg border py-1.5 text-[11px] font-medium', !t.priority ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-line text-ink-600')}>None</button>
-          {PRIORITY_QUICK.map((pr) => (
-            <button key={pr} onClick={() => set({ priority: pr })} className={cn('flex items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-medium', t.priority === pr ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-line text-ink-600')}>
-              <Flag className="h-2.5 w-2.5" style={{ color: PRIORITY_META[pr].color }} /> {PRIORITY_META[pr].label}
-            </button>
-          ))}
+      {/* editable priority + status dropdowns */}
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        <div>
+          <div className="mb-1 text-[11px] font-medium text-ink-500">Priority</div>
+          <select value={t.priority ?? ''} onChange={(e) => set({ priority: (e.target.value || undefined) as Priority })} className="input">
+            <option value="">None</option>
+            {PRIORITY_QUICK.map((pr) => <option key={pr} value={pr}>{PRIORITY_META[pr].label}</option>)}
+          </select>
+        </div>
+        <div>
+          <div className="mb-1 text-[11px] font-medium text-ink-500">Status{completionMode === 'status' ? ' · sets %' : ''}</div>
+          <select value={t.status} onChange={(e) => set({ status: e.target.value as TaskStatus })} className="input">
+            {STATUS_QUICK.map((s) => <option key={s} value={s}>{STATUS_META[s]?.label}</option>)}
+          </select>
         </div>
       </div>
 
@@ -649,28 +551,10 @@ function MobileTaskSheet() {
         </div>
       )}
 
-      <div className="mb-1 text-[11px] font-medium text-ink-500">Status {completionMode === 'status' && '· sets % complete'}</div>
-      <div className="grid grid-cols-3 gap-1.5">
-        {STATUS_QUICK.map((s) => (
-          <button key={s} onClick={() => set({ status: s })} className={cn('flex items-center justify-center gap-1 rounded-lg border py-2 text-[11px] font-medium', t.status === s ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-line text-ink-600')}>
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: STATUS_META[s]?.dot }} /> {STATUS_META[s]?.label}
-          </button>
-        ))}
-      </div>
       {/* assignees editor (works for tasks and subtasks) */}
       <div className="mt-3">
         <div className="mb-1 text-[11px] font-medium text-ink-500">Assigned to</div>
-        <div className="flex flex-wrap gap-1.5">
-          {TEAM.map((m) => {
-            const list = assigneesOf(t)
-            const on = list.includes(m.name)
-            return (
-              <button key={m.id} onClick={() => { const next = on ? list.filter((x) => x !== m.name) : [...list, m.name]; set({ assignees: next, assignee: next[0] }) }} className={cn('flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-2 text-[11px] font-medium', on ? 'border-brand-300 bg-brand-50 text-brand-700' : 'border-line text-ink-500')}>
-                <Avatar name={m.name} color={m.color} /> {m.name.split(' ')[0]}
-              </button>
-            )
-          })}
-        </div>
+        <AssigneeSelect selected={assigneesOf(t)} onChange={(next) => set({ assignees: next, assignee: next[0] })} />
       </div>
 
       {/* move under another task */}
