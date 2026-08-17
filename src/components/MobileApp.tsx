@@ -8,6 +8,7 @@ import { Avatar, AvatarStack, Badge, AssigneeSelect, MetaBadges, HEALTH_META, ST
 
 const DEP_LABEL: Record<string, string> = { FS: 'after it finishes', SS: 'when it starts', FF: 'to finish with it', SF: 'to start when it finishes' }
 import Comments from './Comments'
+import { WorkOrderChip, WorkOrderSection } from './WorkOrder'
 import { taskHealth, isOverdue, isDelayed, fmtDate, diffDays, workingDaysInclusive, scheduleMetrics, rollupProgress, rollupHealth, workingDaysBetween } from '../lib/scheduling'
 import type { Task, TaskStatus, Priority } from '../lib/types'
 
@@ -299,6 +300,13 @@ function TaskCard({ t }: { t: Task }) {
       {/* description — full, wrapped */}
       {(t.description || t.note) && <p className="mt-2 whitespace-pre-line text-[12px] leading-relaxed text-ink-600">{t.description || t.note}</p>}
 
+      {/* linked production work orders */}
+      {(t.workOrderLinks?.length ?? 0) > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {t.workOrderLinks!.map((l) => <WorkOrderChip key={l.id} link={l} task={t} />)}
+        </div>
+      )}
+
       {/* meta badges + on-card quick actions */}
       <div className="mt-2.5 flex items-center gap-2 border-t border-line/70 pt-2">
         <MetaBadges task={t} />
@@ -550,6 +558,9 @@ function MobileTaskSheet() {
           </div>
         </div>
       )}
+
+      {/* linked production work orders */}
+      <div className="mt-3"><WorkOrderSection task={t} /></div>
 
       {/* assignees editor (works for tasks and subtasks) */}
       <div className="mt-3">

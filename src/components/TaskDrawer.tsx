@@ -4,6 +4,7 @@ import { useProject } from '../state/store'
 import { PHASES, TEAM, memberColor, assigneesOf, DELAY_REASONS } from '../data/project'
 import { Button, Badge, Avatar, InfoTip, AssigneeSelect, HEALTH_META, STATUS_META, PRIORITY_META, cn } from './ui'
 import Comments from './Comments'
+import { WorkOrderSection } from './WorkOrder'
 import { taskHealth, isOverdue, isDelayed, fmtDate, diffDays, workingDaysInclusive, rollupProgress, addWorkingDays } from '../lib/scheduling'
 import type { Task, DepType, TaskStatus, Priority, Attachment } from '../lib/types'
 
@@ -192,6 +193,9 @@ export default function TaskDrawer() {
               ))}
             </div>
           </div>
+
+          {/* production / work orders */}
+          {!creating && <WorkOrderSection task={task} />}
 
           {/* attachments */}
           <div>

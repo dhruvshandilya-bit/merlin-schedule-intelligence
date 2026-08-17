@@ -2,6 +2,21 @@ export type TaskStatus = 'done' | 'track' | 'risk' | 'blocked' | 'not-started' |
 export type DepType = 'FS' | 'SS' | 'FF' | 'SF'
 export type Priority = 'low' | 'medium' | 'high' | 'critical'
 
+// ── Production / operations link ──────────────────────────
+// Mirrors the real Merlin ops lifecycle (OperationTaskState).
+export type OpsTaskState =
+  | 'DRAFT' | 'QUEUED' | 'SCHEDULED' | 'READY_TO_START' | 'OPERATOR_ASSIGNED'
+  | 'IN_PROGRESS' | 'IN_REVIEW' | 'COMPLETE' | 'BLOCKED' | 'PAUSED'
+
+// A schedule task can be linked to production at one of three grains.
+// We store only the grain + the id it points at; the status/date/% shown on
+// the task are DERIVED live from that ops entity (see lib/workorder.ts).
+export interface WorkOrderLink {
+  id: string
+  grain: 'serial' | 'task' | 'step'
+  refId: string // ops serial id | operation-task id | step id
+}
+
 export interface TeamMember {
   id: string
   name: string
@@ -75,6 +90,8 @@ export interface Task {
   updatedAt?: string
   // captured when a late task is completed
   delayReason?: { code: string; label: string; note?: string }
+  // links to production work orders (operations/schedule)
+  workOrderLinks?: WorkOrderLink[]
 }
 
 export interface DelayReasonOption {

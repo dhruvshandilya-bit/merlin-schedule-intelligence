@@ -12,6 +12,7 @@ import AgentPanel from './components/AgentPanel'
 import TasksBoard from './components/TasksBoard'
 import Portfolio from './components/Portfolio'
 import Workload from './components/Workload'
+import Procurement from './components/Procurement'
 import TaskDrawer from './components/TaskDrawer'
 import MobileApp from './components/MobileApp'
 import { Button, Badge, InfoTip, cn } from './components/ui'
@@ -149,16 +150,17 @@ const FILTERS: { key: FilterKey; label: string }[] = [
 ]
 
 function TasksTab({ onOpenProject }: { onOpenProject: (id: string) => void }) {
-  const [sub, setSub] = useState<'board' | 'overview' | 'workload'>('board')
+  const [sub, setSub] = useState<'board' | 'overview' | 'workload' | 'procurement'>('board')
   return (
     <div className="flex h-full flex-col">
       <div className="mb-3 inline-flex w-fit items-center gap-1 rounded-lg border border-line bg-white p-0.5">
         <SubTab active={sub === 'board'} onClick={() => setSub('board')}>Board</SubTab>
         <SubTab active={sub === 'overview'} onClick={() => setSub('overview')}>Projects overview</SubTab>
         <SubTab active={sub === 'workload'} onClick={() => setSub('workload')}>Team workload</SubTab>
+        <SubTab active={sub === 'procurement'} onClick={() => setSub('procurement')}>Procurement</SubTab>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        {sub === 'board' ? <TasksBoard /> : sub === 'overview' ? <Portfolio onOpenProject={onOpenProject} /> : <Workload />}
+        {sub === 'board' ? <TasksBoard /> : sub === 'overview' ? <Portfolio onOpenProject={onOpenProject} /> : sub === 'workload' ? <Workload /> : <Procurement />}
       </div>
     </div>
   )

@@ -1,4 +1,5 @@
 import type { Task, Phase, Crew, Constraint, ProjectMeta, WeatherDay, TeamMember, Priority, Comment } from '../lib/types'
+import { WORK_ORDER_LINKS } from './operations'
 
 export const TEAM: TeamMember[] = [
   { id: 'reyes', name: 'M. Reyes', role: 'Project Manager', color: '#6e3785' },
@@ -199,7 +200,7 @@ export const INITIAL_TASKS: Task[] = SEED_TASKS.map((t) => {
     endTime: t.endTime ?? (t.milestone ? '09:00' : '15:30'),
     assignees,
   }
-  const seed = { ...t, assignee, priority: PRIORITY[t.id] ?? t.priority, ...base, ...(RICH[t.id] ?? {}) }
+  const seed = { ...t, assignee, priority: PRIORITY[t.id] ?? t.priority, ...base, ...(RICH[t.id] ?? {}), ...(WORK_ORDER_LINKS[t.id] ? { workOrderLinks: WORK_ORDER_LINKS[t.id] } : {}) }
   // one late+done task already has its delay reason logged
   if (t.id === 'p2') seed.delayReason = { code: 'permit', label: 'Permit / inspection delay', note: 'City plan review queue ran 6 working days over the quoted 10-day turnaround.' }
   return seed
