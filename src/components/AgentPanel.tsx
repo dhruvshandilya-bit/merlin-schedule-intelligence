@@ -78,7 +78,7 @@ export default function AgentPanel() {
     if (intent === 'build') {
       push({
         role: 'agent',
-        text: 'From "24×40 detached garage, start Aug 4" I generated a full work breakdown using the Standard Detached Garage template — durations, FS dependencies, crews and milestones:',
+        text: 'From "24×40 detached garage, start Aug 4" I generated a full work breakdown using the Standard Detached Garage template — durations, FS dependencies, crews and key dates:',
         proposal: {
           title: 'Generated schedule · 30 tasks · 3 phases',
           lines: ['Working-day calendar, weekends off', 'Critical path auto-computed', 'Ready to apply to a new project'],
@@ -159,7 +159,7 @@ export default function AgentPanel() {
       const sm = scheduleMetrics(tasks, cpm, proj.today)
       push({
         role: 'agent',
-        text: `Coley — 24×40 Garage is in Construction, ${sm.pctComplete}% complete (${sm.doneCount}/${sm.totalCount} tasks).\n• Finish ${fmtDate(finish)} (${delta > 0 ? '+' + delta + 'd late' : 'on time'})\n• On-time tasks ${sm.onTimePct}% · ${sm.overdue} overdue · ${sm.atRisk + sm.blocked} at risk/blocked\n• ${sm.criticalCount} tasks on the critical path, ${sm.floatDays}d float to the deadline\n• Next milestone: ${sm.nextMilestone ? sm.nextMilestone.name + ' · ' + fmtDate(sm.nextMilestone.end) : '—'}`,
+        text: `Coley — 24×40 Garage is in Construction, ${sm.pctComplete}% complete (${sm.doneCount}/${sm.totalCount} tasks).\n• Finish ${fmtDate(finish)} (${delta > 0 ? '+' + delta + 'd late' : 'on time'})\n• On-time tasks ${sm.onTimePct}% · ${sm.overdue} overdue · ${sm.atRisk + sm.blocked} at risk/blocked\n• ${sm.criticalCount} tasks on the critical path, ${sm.floatDays}d float to the deadline\n• Next key date: ${sm.nextMilestone ? sm.nextMilestone.name + ' · ' + fmtDate(sm.nextMilestone.end) : '—'}`,
       })
       return
     }

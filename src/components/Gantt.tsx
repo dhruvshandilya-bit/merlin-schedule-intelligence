@@ -44,7 +44,6 @@ export default function Gantt() {
       case 'overdue': return isOverdue(t, today)
       case 'at-risk': return t.status === 'risk' || t.status === 'blocked'
       case 'critical': return !!cpm[t.id]?.critical
-      case 'milestones': return !!t.milestone
       case 'unstarted': return t.status === 'not-started'
       default: return true
     }
@@ -97,7 +96,7 @@ export default function Gantt() {
   const barRect = (t: Task) => {
     const i = rowIndex.get(t.id)!
     const left = x(t.start)
-    const w = t.milestone ? 0 : (diffDays(t.start, t.end) + 1) * dayW
+    const w = (diffDays(t.start, t.end) + 1) * dayW
     return { x: left, w, y: i * ROW_H + ROW_H / 2, i }
   }
   const arrows = useMemo(() => {
@@ -243,18 +242,17 @@ export default function Gantt() {
                       {!parent && t.priority && (t.priority === 'high' || t.priority === 'critical') && (
                         <Flag className="h-3 w-3 shrink-0" style={{ color: PRIORITY_META[t.priority].color }} />
                       )}
-                      {t.milestone && <Diamond className="h-3 w-3 shrink-0 fill-brand-600 text-brand-600" />}
                       <span className={cn('truncate text-[14px]', parent ? 'font-semibold text-ink-950' : 'text-ink-800')}>{t.name}</span>
                       {parent && <span className="shrink-0 rounded bg-surface px-1 text-[9px] font-semibold tabular-nums text-ink-500">{rollPct}%</span>}
                       {overdue && <span className="shrink-0 rounded bg-danger/10 px-1 text-[9px] font-bold text-danger">OVERDUE</span>}
                       {!overdue && delayed && <span className="shrink-0 rounded bg-warn/10 px-1 text-[9px] font-bold text-warn">DELAYED</span>}
-                      {!parent && showCritical && info?.critical && !t.milestone && <span className="shrink-0 rounded bg-danger/10 px-1 text-[9px] font-bold text-danger">CP</span>}
+                      {!parent && showCritical && info?.critical && <span className="shrink-0 rounded bg-danger/10 px-1 text-[9px] font-bold text-danger">CP</span>}
                       {t.isNew && <span className="shrink-0 rounded bg-brand-600 px-1 text-[9px] font-bold text-white">NEW</span>}
                     </span>
                     <span className="flex justify-center">
                       {!parent && <AvatarStack names={assigneesOf(t)} colorFn={memberColor} max={2} />}
                     </span>
-                    <span className="text-right text-[12px] tabular-nums text-ink-700">{parent || t.milestone ? '—' : `${Math.max(1, diffDays(t.start, t.end) + 1)}d`}</span>
+                    <span className="text-right text-[12px] tabular-nums text-ink-700">{parent ? '—' : `${Math.max(1, diffDays(t.start, t.end) + 1)}d`}</span>
                     <span className={cn('text-right text-[12px] tabular-nums', info && info.float <= 0 && !parent ? 'font-bold text-danger' : 'text-ink-500')}>
                       {parent ? '' : info ? (info.float <= 0 ? '0' : `${info.float}d`) : ''}
                     </span>
@@ -360,20 +358,6 @@ export default function Gantt() {
                 // baseline ghost
                 const blLeft = x(t.baselineStart)
                 const blW = Math.max(dayW * 0.6, (diffDays(t.baselineStart, t.baselineEnd) + 1) * dayW)
-
-                if (t.milestone) {
-                  const mx = x(t.start)
-                  return (
-                    <div key={t.id} className="absolute z-10 cursor-pointer" style={{ top: i * ROW_H, height: ROW_H, left: mx - 8, width: 200 }} onClick={() => openDrawer(t.id)} onMouseMove={(e) => moveTip(e, t.name, ['Milestone (zero-duration checkpoint)', fmtDate(t.start), slip > 0 ? `Slipped +${slip}d vs baseline` : 'On baseline'])} onMouseLeave={hideTip}>
-                      <div className="relative flex h-full items-center" style={{ opacity: dim ? 0.4 : 1 }}>
-                        {slip > 0 && <div className="absolute h-[2px] bg-danger/40" style={{ left: 8 - (diffDays(t.baselineStart, t.start)) * dayW, width: Math.abs(diffDays(t.baselineStart, t.start)) * dayW }} />}
-                        <div className={cn('h-3.5 w-3.5 rotate-45 rounded-[2px] shadow-sm', isHi ? 'ring-2 ring-amber-400' : '')} style={{ background: slip > 0 ? '#ef4444' : '#6e3785' }} title={t.name} />
-                        <span className="ml-2 whitespace-nowrap text-[11px] font-medium text-ink-700">{t.name}</span>
-                        {slip > 0 && <span className="ml-1.5 rounded bg-danger/10 px-1 text-[9px] font-bold text-danger">+{slip}d</span>}
-                      </div>
-                    </div>
-                  )
-                }
 
                 const left = x(t.start)
                 const w = Math.max(dayW * 0.5, (diffDays(t.start, t.end) + 1) * dayW)

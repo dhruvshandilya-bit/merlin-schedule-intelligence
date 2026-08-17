@@ -119,16 +119,14 @@ export default function TaskDrawer() {
             <textarea value={task.description ?? ''} onChange={(e) => set({ description: e.target.value })} placeholder="Add detail, scope, or instructions…" rows={3} className="input resize-none" />
           </Field>
 
-          {!task.milestone && (
-            <Field label={`Completion · ${task.progress}%${completionMode === 'status' ? ' · auto from status' : ''}`}>
-              {completionMode === 'manual' ? (
-                <input type="range" min={0} max={100} step={5} value={task.progress} onChange={(e) => set({ progress: Number(e.target.value) })} className="w-full accent-brand-600" />
-              ) : (
-                <div className="mb-1 text-2xs text-ink-400">Org setting: completion follows status. Change the status to update %.</div>
-              )}
-              <div className="h-2 w-full overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full transition-all" style={{ width: `${task.progress}%`, background: HEALTH_META[health]?.color }} /></div>
-            </Field>
-          )}
+          <Field label={`Completion · ${task.progress}%${completionMode === 'status' ? ' · auto from status' : ''}`}>
+            {completionMode === 'manual' ? (
+              <input type="range" min={0} max={100} step={5} value={task.progress} onChange={(e) => set({ progress: Number(e.target.value) })} className="w-full accent-brand-600" />
+            ) : (
+              <div className="mb-1 text-2xs text-ink-400">Org setting: completion follows status. Change the status to update %.</div>
+            )}
+            <div className="h-2 w-full overflow-hidden rounded-full bg-surface"><div className="h-full rounded-full transition-all" style={{ width: `${task.progress}%`, background: HEALTH_META[health]?.color }} /></div>
+          </Field>
 
           {/* dates with time */}
           <div className="grid grid-cols-2 gap-3">
@@ -136,7 +134,7 @@ export default function TaskDrawer() {
             <Field label="Finish"><div className="flex gap-1.5"><input type="date" value={task.end} onChange={(e) => set({ end: e.target.value })} className="input !px-2" /><input type="time" value={task.endTime ?? '16:00'} onChange={(e) => set({ endTime: e.target.value })} className="input !w-[86px] !px-2" /></div></Field>
           </div>
           <div className="flex items-center justify-between rounded-lg bg-surface px-3 py-2 text-2xs text-ink-600">
-            <span>Duration <b className="text-ink-950">{task.milestone ? '0d (milestone)' : `${Math.max(1, workingDaysInclusive(task.start, task.end))} working days`}</b></span>
+            <span>Duration <b className="text-ink-950">{`${Math.max(1, workingDaysInclusive(task.start, task.end))} working days`}</b></span>
             <span>Planned <b className="text-ink-950">{fmtDate(task.baselineStart)}–{fmtDate(task.baselineEnd)}</b></span>
           </div>
           {/* actual (done) / forecast (open) dates — only when the task did not stay on plan */}
@@ -153,14 +151,6 @@ export default function TaskDrawer() {
           )}
 
           <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-            <div>
-              <span className="mb-1 flex items-center gap-1 text-2xs font-medium text-ink-500">Type <InfoTip text="A Task is real work with a duration. A Milestone is a zero-duration checkpoint — a key date like permit approved, dry-in, or delivery. It shows as a diamond and anchors dependencies." /></span>
-              <div className="inline-flex rounded-lg border border-line p-0.5">
-                {([['task', 'Task'], ['milestone', 'Milestone']] as const).map(([v, label]) => (
-                  <button key={v} onClick={() => set({ milestone: v === 'milestone' })} className={cn('rounded-md px-3 py-1 text-[13px] font-medium transition-colors', (v === 'milestone') === !!task.milestone ? 'bg-brand-600 text-white' : 'text-ink-600 hover:bg-surface')}>{label}</button>
-                ))}
-              </div>
-            </div>
             <label className="flex items-center gap-1.5 pb-1.5 text-[13px] text-ink-700"><input type="checkbox" checked={!!task.weatherSensitive} onChange={(e) => set({ weatherSensitive: e.target.checked })} className="accent-brand-600" /> Weather-sensitive <InfoTip text="Tells the Weather Watch agent to monitor this task — it warns when rain, wind, temperature or humidity threatens the scheduled day (pours, roofing, crane, paint, delivery)." /></label>
           </div>
 
@@ -260,14 +250,12 @@ export default function TaskDrawer() {
                               <span className="flex-1 truncate text-[13px] text-ink-700">{c.name}</span>
                               {c.priority && (c.priority === 'high' || c.priority === 'critical') && <Flag className="h-3 w-3 shrink-0" style={{ color: PRIORITY_META[c.priority].color }} />}
                             </span>
-                            {!c.milestone && (
-                              <span className="mt-1 flex h-1 w-full overflow-hidden rounded-full bg-surface">
-                                <span className="h-full rounded-full" style={{ width: `${c.progress}%`, background: HEALTH_META[ch]?.color }} />
-                              </span>
-                            )}
+                            <span className="mt-1 flex h-1 w-full overflow-hidden rounded-full bg-surface">
+                              <span className="h-full rounded-full" style={{ width: `${c.progress}%`, background: HEALTH_META[ch]?.color }} />
+                            </span>
                           </span>
                           {c.assignee && <Avatar name={c.assignee} color={memberColor(c.assignee)} />}
-                          <span className="w-8 text-right text-2xs tabular-nums text-ink-400">{c.milestone ? '◆' : `${c.progress}%`}</span>
+                          <span className="w-8 text-right text-2xs tabular-nums text-ink-400">{`${c.progress}%`}</span>
                         </button>
                         <button onClick={() => deleteTask(c.id, 'Subtask deleted')} title="Delete subtask" className="text-ink-400 opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"><Trash2 className="h-3.5 w-3.5" /></button>
                         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-ink-400" />
@@ -315,7 +303,7 @@ export default function TaskDrawer() {
           ) : (
             <>
               <Button variant="outline" onClick={closeDrawer}>Close</Button>
-              <button onClick={() => setConfirmDel(true)} className="ml-auto flex items-center gap-1.5 text-[13px] font-medium text-danger hover:underline"><Trash2 className="h-4 w-4" /> Delete {task.milestone ? 'milestone' : task.parentId && !/\.0$/.test(tasks.find((x) => x.id === task.parentId)?.wbs ?? '') ? 'subtask' : 'task'}</button>
+              <button onClick={() => setConfirmDel(true)} className="ml-auto flex items-center gap-1.5 text-[13px] font-medium text-danger hover:underline"><Trash2 className="h-4 w-4" /> Delete {task.parentId && !/\.0$/.test(tasks.find((x) => x.id === task.parentId)?.wbs ?? '') ? 'subtask' : 'task'}</button>
             </>
           )}
         </div>
